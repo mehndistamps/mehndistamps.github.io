@@ -4,7 +4,7 @@ Turn a mehndi design into a 3D-printable block stamp, right in the browser.
 
 **Live app:** https://mehndistamps.github.io/
 
-- Pick a built-in motif (mandala, lotus, paisley border, vine border, jaal lattice) or upload a PNG/JPG/SVG — dark areas become the raised printing surface.
+- **Upload your own henna design** (JPEG, PNG, WebP, SVG): click, drag & drop, or paste. Blank margins are trimmed, the block is sized to the design, and **Photo mode** handles shadows in phone pictures. Or pick a built-in motif (mandala, lotus, paisley border, vine border, jaal lattice). Dark areas become the raised printing surface.
 - Choose the block shape (rectangle, circle, oval, hexagon), size, relief depth and handle (knob or grip bar).
 - Download STLs:
   - **Body + handle** (PLA) — prints flat side down, handle up
@@ -16,7 +16,18 @@ No supports needed. Geometry is built with [manifold-3d](https://github.com/elal
 ## Run locally
 
 ```bash
-python3 -m http.server 8765
+npm install
+npm run serve
 ```
 
 Then open http://localhost:8765.
+
+## UI tests
+
+Playwright tests cover presets, the 3D preview, JPEG upload (picker, drag & drop, paste, photo mode, bad files), STL downloads (parsed and size-checked), and layout/alignment at desktop and phone sizes.
+
+```bash
+npx playwright install chromium
+npm test              # against a local server
+npm run test:live     # against https://mehndistamps.github.io
+```

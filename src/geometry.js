@@ -4,12 +4,12 @@
 // pad hangs below it with the stamp face at the lowest z. The design is laid
 // out in XY exactly as it will appear on paper, so no mirroring is needed.
 
-import Module from 'https://cdn.jsdelivr.net/npm/manifold-3d@3.3.2/manifold.js';
+import Module from '../vendor/manifold/manifold.js'; // manifold-3d 3.3.2
 
 let wasm;
 export async function initGeometry() {
   wasm = await Module({
-    locateFile: () => 'https://cdn.jsdelivr.net/npm/manifold-3d@3.3.2/manifold.wasm',
+    locateFile: () => new URL('../vendor/manifold/manifold.wasm', import.meta.url).href,
   });
   wasm.setup();
   return wasm;

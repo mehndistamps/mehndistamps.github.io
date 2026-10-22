@@ -4,11 +4,12 @@ import { PATTERNS } from './patterns.js';
 import { traceMask } from './trace.js';
 import { initGeometry, buildParts } from './geometry.js';
 import { meshToStl, download } from './stl.js';
+import { luminance, otsu, adaptiveMask, trimToInk } from './imageproc.js';
 
 const $ = (id) => document.getElementById(id);
 const NUM_FIELDS = ['blur', 'imgScale', 'imgRotate', 'width', 'height', 'corner', 'reliefDepth', 'padBase',
   'weight', 'shoulder', 'margin', 'border', 'borderInset', 'padInset', 'bodyThick', 'handleHeight',
-  'knobDia', 'gripThick', 'res', 'smooth', 'minArea', 'threshold'];
+  'knobDia', 'gripThick', 'res', 'smooth', 'minArea', 'threshold', 'adaptive'];
 
 // Shape/size each built-in motif is designed around.
 const PRESET_SHAPES = {
@@ -19,55 +20,154 @@ const PRESET_SHAPES = {
   jaal: { shape: 'rect', width: 50, height: 50 },
 };
 
-let uploaded = null; // HTMLImageElement
+const upload = { raw: null, src: null, name: '', thumbUrl: null }; // src: trimmed canvas or raw image
 let result = null;
+let builds = 0;
 
 // ---------- controls ----------
 const sourceSel = $('source');
 for (const [k, v] of Object.entries(PATTERNS)) sourceSel.add(new Option(v.label, k));
-sourceSel.add(new Option('Upload image…', 'upload'));
+sourceSel.add(new Option('Uploaded image', 'upload'));
 sourceSel.value = 'paisley';
 
 function params() {
   const p = { source: sourceSel.value, shape: $('shape').value, handle: $('handle').value,
-    invert: $('invert').checked, mirror: $('mirror').checked };
+    threshMode: $('threshMode').value, invert: $('invert').checked, mirror: $('mirror').checked };
   for (const f of NUM_FIELDS) p[f] = parseFloat($(f).value) || 0;
   if (p.shape === 'circle' || p.shape === 'hex') p.height = p.width;
+  p.width = Math.max(5, p.width);
+  p.height = Math.max(5, p.height);
   p.res = Math.max(0.04, p.res);
   return p;
 }
 
+function show(id, on) { $(id).style.display = on ? '' : 'none'; }
+
 function syncVisibility() {
-  const shape = $('shape').value;
-  $('heightRow').style.display = shape === 'circle' || shape === 'hex' ? 'none' : '';
-  $('cornerRow').style.display = shape === 'rect' ? '' : 'none';
-  $('uploadRow').style.display = sourceSel.value === 'upload' ? '' : 'none';
+  const shape = $('shape').value, mode = $('threshMode').value, isUpload = sourceSel.value === 'upload';
+  show('heightRow', shape !== 'circle' && shape !== 'hex');
+  show('cornerRow', shape === 'rect');
+  show('thresholdRow', mode === 'manual');
+  show('adaptiveRow', mode === 'adaptive');
+  show('trimRow', isUpload);
+  show('fitRow', isUpload);
+  $('dropActions').classList.toggle('show', isUpload && !!upload.src);
+}
+
+function applyPreset(name) {
+  const preset = PRESET_SHAPES[name];
+  if (!preset) return;
+  $('shape').value = preset.shape;
+  $('width').value = preset.width;
+  if (preset.height) $('height').value = preset.height;
 }
 
 sourceSel.addEventListener('change', () => {
-  const preset = PRESET_SHAPES[sourceSel.value];
-  if (preset) {
-    $('shape').value = preset.shape;
-    $('width').value = preset.width;
-    if (preset.height) $('height').value = preset.height;
-  }
+  if (sourceSel.value === 'upload' && !upload.src) $('file').click();
+  applyPreset(sourceSel.value);
   syncVisibility();
   schedule();
-});
-$('file').addEventListener('change', (e) => {
-  const f = e.target.files[0];
-  if (!f) return;
-  const img = new Image();
-  img.onload = () => { uploaded = img; schedule(); };
-  img.src = URL.createObjectURL(f);
 });
 $('controls').addEventListener('input', (e) => {
-  if (e.target.id === 'file' || e.target.id === 'source') return;
+  if (['file', 'source', 'trim', 'fit'].includes(e.target.id)) return;
   syncVisibility();
   schedule();
 });
+$('trim').addEventListener('change', () => { if (upload.raw) { prepareUpload(false); schedule(); } });
 $('explode').addEventListener('change', placeMeshes);
 $('flipView').addEventListener('change', placeMeshes);
+
+// ---------- uploads: click, drag & drop, paste ----------
+const IMAGE_EXT = /\.(jpe?g|png|webp|gif|bmp|svg|avif|heic|heif|tiff?)$/i;
+
+function uploadError(msg) { $('uploadError').textContent = msg || ''; }
+
+function handleFile(file) {
+  uploadError('');
+  if (!file) return;
+  if (!(file.type.startsWith('image/') || IMAGE_EXT.test(file.name))) {
+    uploadError(`"${file.name}" isn't an image. Use a JPEG, PNG, WebP or SVG of your henna design.`);
+    return;
+  }
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    if (upload.thumbUrl) URL.revokeObjectURL(upload.thumbUrl);
+    Object.assign(upload, { raw: img, name: file.name, thumbUrl: url });
+    prepareUpload(true);
+    $('dropThumb').outerHTML = `<img id="dropThumb" alt="" src="${url}">`;
+    const iw = img.naturalWidth, ih = img.naturalHeight;
+    $('dropText').innerHTML = '<strong></strong><small></small>';
+    $('dropText').querySelector('strong').textContent = file.name;
+    $('dropText').querySelector('small').textContent = `${iw} × ${ih}px · click or drop to replace`;
+    sourceSel.value = 'upload';
+    syncVisibility();
+    rebuild();
+  };
+  img.onerror = () => {
+    URL.revokeObjectURL(url);
+    uploadError(/\.(heic|heif)$/i.test(file.name)
+      ? 'This browser can\'t open HEIC photos. Export it as JPEG first (Share → Save as JPEG), then upload.'
+      : `Couldn't read "${file.name}". Try saving it as JPEG or PNG.`);
+  };
+  img.src = url;
+}
+
+// Trim margins and (first time) size the block to the design's proportions.
+function prepareUpload(firstLoad) {
+  upload.src = $('trim').checked ? trimToInk(upload.raw) : upload.raw;
+  if (firstLoad && $('fit').checked) {
+    const sw = upload.src.naturalWidth || upload.src.width;
+    const sh = upload.src.naturalHeight || upload.src.height;
+    const aspect = sh / sw;
+    if (Math.abs(aspect - 1) < 0.08) {
+      if ($('shape').value === 'rect') $('height').value = $('width').value;
+    } else {
+      if (!['rect', 'oval'].includes($('shape').value)) $('shape').value = 'rect';
+      const W = parseFloat($('width').value) || 60;
+      const H = Math.round(W * aspect);
+      if (H < 10) { $('height').value = 10; $('width').value = Math.round(10 / aspect); }
+      else if (H > 200) { $('height').value = 200; $('width').value = Math.max(10, Math.round(200 / aspect)); }
+      else $('height').value = H;
+    }
+  }
+}
+
+$('file').addEventListener('change', (e) => { handleFile(e.target.files[0]); e.target.value = ''; });
+$('clearUpload').addEventListener('click', () => {
+  if (upload.thumbUrl) URL.revokeObjectURL(upload.thumbUrl);
+  Object.assign(upload, { raw: null, src: null, name: '', thumbUrl: null });
+  $('dropThumb').outerHTML = '<span class="ph" id="dropThumb" aria-hidden="true">⇪</span>';
+  $('dropText').innerHTML = '<strong>Upload your henna design</strong><small>JPEG, PNG, WebP or SVG</small>';
+  sourceSel.value = 'paisley';
+  applyPreset('paisley');
+  uploadError('');
+  syncVisibility();
+  rebuild();
+});
+
+const drop = $('drop');
+drop.tabIndex = 0;
+drop.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  e.preventDefault();
+  // input.click() from a keydown doesn't open Chrome's picker; showPicker() does
+  try { $('file').showPicker(); } catch { $('file').click(); }
+});
+let dragDepth = 0;
+window.addEventListener('dragenter', (e) => { e.preventDefault(); dragDepth++; drop.classList.add('dragging'); });
+window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; drop.classList.remove('dragging'); } });
+window.addEventListener('dragover', (e) => e.preventDefault());
+window.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dragDepth = 0;
+  drop.classList.remove('dragging');
+  handleFile(e.dataTransfer?.files?.[0]);
+});
+window.addEventListener('paste', (e) => {
+  const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith('image/'));
+  if (item) handleFile(new File([item.getAsFile()], 'pasted-design.png', { type: item.type }));
+});
 
 // ---------- design raster ----------
 function rasterize(p) {
@@ -87,23 +187,27 @@ function rasterize(p) {
   ctx.scale(p.imgScale / 100, p.imgScale / 100);
   ctx.translate(-w / 2, -h / 2);
   if (p.source === 'upload') {
-    if (uploaded) {
-      const s = Math.min(w / uploaded.naturalWidth, h / uploaded.naturalHeight);
-      const iw = uploaded.naturalWidth * s, ih = uploaded.naturalHeight * s;
-      ctx.drawImage(uploaded, (w - iw) / 2, (h - ih) / 2, iw, ih);
+    const src = upload.src;
+    if (src) {
+      const sw = src.naturalWidth || src.width, sh = src.naturalHeight || src.height;
+      const s = Math.min(w / sw, h / sh);
+      ctx.drawImage(src, (w - sw * s) / 2, (h - sh * s) / 2, sw * s, sh * s);
     }
   } else {
     PATTERNS[p.source].draw(ctx, w, h, k);
   }
   ctx.restore();
 
-  const data = ctx.getImageData(0, 0, w, h).data;
-  const mask = new Uint8Array(w * h);
-  for (let i = 0; i < w * h; i++) {
-    const a = data[i * 4 + 3] / 255;
-    const lum = (0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2]) * a + 255 * (1 - a);
-    mask[i] = (lum < p.threshold) !== p.invert ? 1 : 0;
+  const lum = luminance(ctx.getImageData(0, 0, w, h).data, w * h);
+  let mask;
+  if (p.threshMode === 'adaptive') {
+    mask = adaptiveMask(lum, w, h, p.adaptive, Math.round(Math.min(w, h) / 6));
+  } else {
+    const t = p.threshMode === 'auto' ? otsu(lum) : p.threshold;
+    mask = new Uint8Array(w * h);
+    for (let i = 0; i < w * h; i++) mask[i] = lum[i] < t ? 1 : 0;
   }
+  if (p.invert) for (let i = 0; i < mask.length; i++) mask[i] ^= 1;
   return { mask, w, h };
 }
 
@@ -139,10 +243,10 @@ function drawImpression(r) {
 }
 
 // ---------- 3D view ----------
-const view = $('view');
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+const stage = $('stage');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(2, devicePixelRatio));
-view.appendChild(renderer.domElement);
+stage.prepend(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(35, 1, 1, 5000);
 camera.up.set(0, 0, 1);
@@ -161,7 +265,7 @@ const bodyMat = new THREE.MeshStandardMaterial({ color: 0xc8a27a, roughness: 0.7
 const padMat = new THREE.MeshStandardMaterial({ color: 0xc8483a, roughness: 0.85 });
 const group = new THREE.Group();
 scene.add(group);
-let bodyObj = null, padObj = null, framed = false;
+let bodyObj = null, padObj = null, framedFor = '';
 
 function toGeometry(mesh) {
   const g = new THREE.BufferGeometry();
@@ -184,11 +288,13 @@ function showMeshes(r) {
   padObj = new THREE.Mesh(toGeometry(r.padMesh), padMat);
   group.add(bodyObj, padObj);
   placeMeshes();
-  if (!framed) {
-    const size = Math.max(r.dims.W, r.dims.H, 30);
+  // re-frame the camera when the block size changes noticeably
+  const size = Math.max(r.dims.W, r.dims.H, 30);
+  const key = String(Math.round(size / 10));
+  if (key !== framedFor) {
     camera.position.set(size * 1.1, -size * 1.7, size * 1.3);
     controls.target.set(0, 0, 4);
-    framed = true;
+    framedFor = key;
   }
 }
 
@@ -199,13 +305,13 @@ function placeMeshes() {
 }
 
 function resize() {
-  const r = view.getBoundingClientRect();
-  const w = r.width - 24, h = Math.max(340, r.height - 60);
-  renderer.setSize(w, h);
+  const w = stage.clientWidth, h = stage.clientHeight;
+  if (!w || !h) return;
+  renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
-new ResizeObserver(resize).observe(view);
+new ResizeObserver(resize).observe(stage);
 renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
 
 // ---------- build ----------
@@ -216,6 +322,7 @@ function schedule() {
 }
 
 function rebuild() {
+  clearTimeout(timer);
   const status = $('status');
   try {
     const p = params();
@@ -230,22 +337,32 @@ function rebuild() {
     $('stats').textContent =
       `${result.dims.W.toFixed(1)} × ${result.dims.H.toFixed(1)} mm · ` +
       `handle: ${result.handle} · body ≈ ${g(result.volumes.body)} g · pad ≈ ${g(result.volumes.pad)} g · ${ms} ms`;
-    status.textContent = p.source === 'upload' && !uploaded ? 'Choose an image to upload' : '';
-    for (const id of ['dlBody', 'dlPad', 'dlOne']) $(id).disabled = false;
+    const empty = result.reliefArea < 0.5;
+    status.textContent = p.source === 'upload' && !upload.src ? 'Upload an image to start'
+      : empty ? 'No design found: try another threshold mode or Invert' : '';
+    for (const id of ['dlBody', 'dlPad', 'dlOne', 'dlBoth', 'dlBothSide']) $(id).disabled = false;
   } catch (err) {
     console.error(err);
     status.textContent = `Couldn't build: ${err.message || err}`;
   }
+  document.body.dataset.builds = ++builds; // lets UI tests wait for a rebuild
 }
 
 function baseName() {
   const p = params();
-  const src = p.source === 'upload' ? 'custom' : p.source;
+  const src = p.source === 'upload'
+    ? (upload.name.replace(/\.[^.]+$/, '').replace(/[^\w-]+/g, '-').slice(0, 40) || 'custom')
+    : p.source;
   return `mehndi-${src}-${Math.round(p.width)}x${Math.round(p.height)}`;
 }
-$('dlBody').onclick = () => result && download(meshToStl(result.bodyPrint, 'body'), `${baseName()}-body-PLA.stl`);
-$('dlPad').onclick = () => result && download(meshToStl(result.padPrint, 'pad'), `${baseName()}-pad-TPU.stl`);
+const dlBody = () => result && download(meshToStl(result.bodyPrint, 'body'), `${baseName()}-body-PLA.stl`);
+const dlPad = () => result && download(meshToStl(result.padPrint, 'pad'), `${baseName()}-pad-TPU.stl`);
+const dlBoth = () => { dlBody(); setTimeout(dlPad, 400); };
+$('dlBody').onclick = dlBody;
+$('dlPad').onclick = dlPad;
 $('dlOne').onclick = () => result && download(meshToStl(result.onePiecePrint, 'one-piece'), `${baseName()}-onepiece.stl`);
+$('dlBoth').onclick = dlBoth;
+$('dlBothSide').onclick = dlBoth;
 
 // ---------- start ----------
 syncVisibility();
