@@ -222,3 +222,29 @@ test.describe('phone layout', () => {
     await expect(page.locator('#touchHint')).toBeVisible();
   });
 });
+
+test.describe('app icon', () => {
+  test('favicon, home-screen icon and manifest are wired up and load', async ({ page, request }) => {
+    await openApp(page);
+    const hrefs = await page.$$eval('link[rel~="icon"], link[rel="apple-touch-icon"], link[rel="manifest"]',
+      (ls) => ls.map((l) => l.href));
+    expect(hrefs.length).toBe(4);
+    for (const href of hrefs) expect((await request.get(href)).ok(), href).toBe(true);
+    const manifest = await (await request.get(hrefs.find((h) => h.endsWith('.webmanifest')))).json();
+    expect(manifest.name).toBe('Mehndi Print Blocks');
+    const base = new URL(hrefs.find((h) => h.endsWith('.webmanifest')));
+    for (const icon of manifest.icons) {
+      expect((await request.get(new URL(icon.src, base).href)).ok(), icon.src).toBe(true);
+    }
+    expect(manifest.icons.some((i) => i.purpose === 'maskable')).toBe(true);
+  });
+
+  test('header logo sits centred beside the title', async ({ page }) => {
+    await openApp(page);
+    const logo = await page.locator('header .logo').boundingBox();
+    const title = await page.locator('header h1').boundingBox();
+    expect(logo.width).toBe(28);
+    expect(await page.$eval('header .logo', (i) => i.complete && i.naturalWidth > 0)).toBe(true);
+    expect(Math.abs((logo.y + logo.height / 2) - (title.y + title.height / 2))).toBeLessThanOrEqual(1.5);
+  });
+});

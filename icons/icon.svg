@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Mehndi Print Blocks: a henna mandala stamp face -->
+  <rect width="512" height="512" rx="112" fill="#b4442b"/>
+  <g fill="#fbf3e6" transform="translate(256 256)">
+    <circle r="34"/>
+    <g id="petal">
+      <path d="M0-58C26-82 30-126 0-172C-30-126-26-82 0-58Z"/>
+    </g>
+    <use href="#petal" transform="rotate(45)"/>
+    <use href="#petal" transform="rotate(90)"/>
+    <use href="#petal" transform="rotate(135)"/>
+    <use href="#petal" transform="rotate(180)"/>
+    <use href="#petal" transform="rotate(225)"/>
+    <use href="#petal" transform="rotate(270)"/>
+    <use href="#petal" transform="rotate(315)"/>
+    <g id="dot"><circle cy="-196" r="16" transform="rotate(22.5)"/></g>
+    <use href="#dot" transform="rotate(45)"/>
+    <use href="#dot" transform="rotate(90)"/>
+    <use href="#dot" transform="rotate(135)"/>
+    <use href="#dot" transform="rotate(180)"/>
+    <use href="#dot" transform="rotate(225)"/>
+    <use href="#dot" transform="rotate(270)"/>
+    <use href="#dot" transform="rotate(315)"/>
+  </g>
+  <circle cx="256" cy="256" r="14" fill="#b4442b"/>
+</svg>
