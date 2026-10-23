@@ -2,22 +2,29 @@ import { expect } from '@playwright/test';
 import fs from 'node:fs';
 
 // Open the app and wait for the first build; collects page errors.
-export async function openApp(page) {
+// expand: open every settings section (phones start with them collapsed).
+export async function openApp(page, { expand = true } = {}) {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
   await page.goto('/');
   await expect(page.locator('body')).toHaveAttribute('data-builds', /[1-9]/);
+  if (expand) await page.$$eval('aside > details', (ds) => ds.forEach((d) => { d.open = true; }));
   return errors;
 }
 
 export const builds = (page) => page.evaluate(() => Number(document.body.dataset.builds || 0));
 
+// Wait until no rebuild is queued.
+export const settled = (page) => expect(page.locator('body')).not.toHaveAttribute('data-pending', /./);
+
 // Run an action and wait until the app has rebuilt the model after it.
 export async function rebuiltAfter(page, action) {
+  await settled(page);
   const before = await builds(page);
   await action();
   await expect.poll(() => builds(page)).toBeGreaterThan(before);
+  await settled(page);
 }
 
 // Draw a henna-style design in the browser and return it as JPEG bytes.

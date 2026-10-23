@@ -168,6 +168,20 @@ test.describe('henna design upload', () => {
     await expect(page.locator('#source')).toHaveValue('paisley');
   });
 
+  test('a blank image builds a plain pad and explains why', async ({ page }, info) => {
+    const errors = await openApp(page);
+    const b64 = await page.evaluate(() => {
+      const c = document.createElement('canvas'); c.width = 400; c.height = 300;
+      const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 400, 300);
+      return c.toDataURL('image/jpeg').split(',')[1];
+    });
+    const file = info.outputPath('blank.jpg');
+    (await import('node:fs')).writeFileSync(file, Buffer.from(b64, 'base64'));
+    await rebuiltAfter(page, () => page.setInputFiles('#file', file));
+    await expect(page.locator('#status')).toContainText('No design found');
+    expect(errors).toEqual([]);
+  });
+
   test('a corrupt JPEG shows an error', async ({ page }, info) => {
     await openApp(page);
     const file = info.outputPath('broken.jpg');

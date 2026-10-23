@@ -5,6 +5,8 @@ Turn a mehndi design into a 3D-printable block stamp, right in the browser.
 **Live app:** https://mehndistamps.github.io/
 
 - **Upload your own henna design** (JPEG, PNG, WebP, SVG): click, drag & drop, or paste. Blank margins are trimmed, the block is sized to the design, and **Photo mode** handles shadows in phone pictures. Or pick a built-in motif (mandala, lotus, paisley border, vine border, jaal lattice). Dark areas become the raised printing surface.
+- **Draw a design right in the app**: pen, dot trails and eraser with mirror, 4-way, radial (6/8/12) and kaleidoscope symmetry, plus undo/redo. Your drawing is saved in the browser.
+- **Works on phones**: the design and preview come first, a pinned bar gives one-tap Draw and Download, and a two-finger gesture rotates the 3D view so one finger still scrolls the page.
 - Choose the block shape (rectangle, circle, oval, hexagon), size, relief depth and handle (knob or grip bar).
 - Download STLs:
   - **Body + handle** (PLA) — prints flat side down, handle up
@@ -24,7 +26,7 @@ Then open http://localhost:8765.
 
 ## UI tests
 
-Playwright tests cover presets, the 3D preview, JPEG upload (picker, drag & drop, paste, photo mode, bad files), STL downloads (parsed and size-checked), and layout/alignment at desktop and phone sizes.
+Playwright tests cover presets, the 3D preview, the drawing pad (symmetry, dots, eraser, undo/redo, saving), JPEG upload (picker, drag & drop, paste, photo mode, blank and bad files), STL downloads (parsed and size-checked), and layout, alignment and touch sizes at desktop and phone sizes.
 
 ```bash
 npx playwright install chromium

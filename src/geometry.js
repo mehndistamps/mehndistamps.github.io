@@ -45,7 +45,9 @@ export function outlineFor(p, t) {
 export function reliefSection(loops, p, t) {
   const { CrossSection } = wasm;
   const outline = outlineFor(p, t);
-  let cs = t(new CrossSection(loops, 'EvenOdd'));
+  // CrossSection can't be built from zero contours (blank image, everything erased)
+  let cs = loops.length ? t(new CrossSection(loops, 'EvenOdd'))
+    : t(t(CrossSection.square(1)).subtract(t(CrossSection.square(1))));
   if (p.smooth > 0) cs = t(cs.simplify(p.smooth));
   if (p.weight !== 0) cs = t(cs.offset(p.weight, 'Round', 2, 24));
   cs = t(cs.intersect(t(outline.offset(-p.margin, 'Round', 2, 48))));

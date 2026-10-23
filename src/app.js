@@ -5,6 +5,7 @@ import { traceMask } from './trace.js';
 import { initGeometry, buildParts } from './geometry.js';
 import { meshToStl, download } from './stl.js';
 import { luminance, otsu, adaptiveMask, trimToInk } from './imageproc.js';
+import { createDoodle, renderStrokes } from './doodle.js';
 
 const $ = (id) => document.getElementById(id);
 const NUM_FIELDS = ['blur', 'imgScale', 'imgRotate', 'width', 'height', 'corner', 'reliefDepth', 'padBase',
@@ -28,6 +29,7 @@ let builds = 0;
 const sourceSel = $('source');
 for (const [k, v] of Object.entries(PATTERNS)) sourceSel.add(new Option(v.label, k));
 sourceSel.add(new Option('Uploaded image', 'upload'));
+sourceSel.add(new Option('My drawing', 'doodle'));
 sourceSel.value = 'paisley';
 
 function params() {
@@ -64,6 +66,7 @@ function applyPreset(name) {
 
 sourceSel.addEventListener('change', () => {
   if (sourceSel.value === 'upload' && !upload.src) $('file').click();
+  if (sourceSel.value === 'doodle' && !doodle.strokes.length) doodle.open();
   applyPreset(sourceSel.value);
   syncVisibility();
   schedule();
@@ -101,6 +104,7 @@ function handleFile(file) {
     $('dropText').querySelector('strong').textContent = file.name;
     $('dropText').querySelector('small').textContent = `${iw} × ${ih}px · click or drop to replace`;
     sourceSel.value = 'upload';
+    $('threshMode').closest('details').open = true; // show photo mode / trim options
     syncVisibility();
     rebuild();
   };
@@ -193,6 +197,10 @@ function rasterize(p) {
       const s = Math.min(w / sw, h / sh);
       ctx.drawImage(src, (w - sw * s) / 2, (h - sh * s) / 2, sw * s, sh * s);
     }
+  } else if (p.source === 'doodle') {
+    ctx.translate(w / 2, h / 2);
+    ctx.scale(k, k);
+    renderStrokes(ctx, doodle.strokes);
   } else {
     PATTERNS[p.source].draw(ctx, w, h, k);
   }
@@ -253,6 +261,12 @@ camera.up.set(0, 0, 1);
 camera.position.set(90, -140, 110);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
+// on touch screens one finger scrolls the page; two fingers rotate/zoom the model
+if (matchMedia('(pointer: coarse)').matches) {
+  controls.touches = { ONE: null, TWO: THREE.TOUCH.DOLLY_ROTATE };
+  renderer.domElement.style.touchAction = 'pan-y';
+  $('touchHint').hidden = false;
+}
 scene.add(new THREE.HemisphereLight(0xfff6ea, 0x40342a, 1.4));
 const sun = new THREE.DirectionalLight(0xffffff, 1.6);
 sun.position.set(80, -60, 160);
@@ -318,11 +332,13 @@ renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, came
 let timer = null;
 function schedule() {
   clearTimeout(timer);
+  document.body.dataset.pending = '1'; // lets UI tests wait until the model is up to date
   timer = setTimeout(rebuild, 200);
 }
 
 function rebuild() {
   clearTimeout(timer);
+  delete document.body.dataset.pending;
   const status = $('status');
   try {
     const p = params();
@@ -339,8 +355,9 @@ function rebuild() {
       `handle: ${result.handle} · body ≈ ${g(result.volumes.body)} g · pad ≈ ${g(result.volumes.pad)} g · ${ms} ms`;
     const empty = result.reliefArea < 0.5;
     status.textContent = p.source === 'upload' && !upload.src ? 'Upload an image to start'
+      : p.source === 'doodle' && !doodle.strokes.length ? 'Tap “Draw a design” to start doodling'
       : empty ? 'No design found: try another threshold mode or Invert' : '';
-    for (const id of ['dlBody', 'dlPad', 'dlOne', 'dlBoth', 'dlBothSide']) $(id).disabled = false;
+    for (const id of ['dlBody', 'dlPad', 'dlOne', 'dlBoth', 'dlBothSide', 'mbDownload']) $(id).disabled = false;
   } catch (err) {
     console.error(err);
     status.textContent = `Couldn't build: ${err.message || err}`;
@@ -352,7 +369,7 @@ function baseName() {
   const p = params();
   const src = p.source === 'upload'
     ? (upload.name.replace(/\.[^.]+$/, '').replace(/[^\w-]+/g, '-').slice(0, 40) || 'custom')
-    : p.source;
+    : p.source === 'doodle' ? 'drawing' : p.source;
   return `mehndi-${src}-${Math.round(p.width)}x${Math.round(p.height)}`;
 }
 const dlBody = () => result && download(meshToStl(result.bodyPrint, 'body'), `${baseName()}-body-PLA.stl`);
@@ -363,6 +380,35 @@ $('dlPad').onclick = dlPad;
 $('dlOne').onclick = () => result && download(meshToStl(result.onePiecePrint, 'one-piece'), `${baseName()}-onepiece.stl`);
 $('dlBoth').onclick = dlBoth;
 $('dlBothSide').onclick = dlBoth;
+$('mbDownload').onclick = dlBoth;
+
+// ---------- doodle ----------
+const doodle = createDoodle({
+  dialog: $('doodle'),
+  getBlock: () => { const p = params(); return { shape: p.shape, W: p.width, H: p.height, corner: p.corner }; },
+  onChange: (strokes) => {
+    if (sourceSel.value !== 'doodle' && strokes.length) {
+      sourceSel.value = 'doodle';
+      syncVisibility();
+    }
+    doodleInfo();
+    schedule();
+  },
+});
+function doodleInfo() {
+  const n = doodle.strokes.length;
+  $('doodleInfo').textContent = n ? `${n} stroke${n > 1 ? 's' : ''} saved · tap to keep drawing` : 'Doodle with mirror & radial symmetry';
+}
+$('openDoodle').onclick = () => doodle.open();
+$('mbDraw').onclick = () => doodle.open();
+$('doodleDone').onclick = () => { $('doodle').close(); rebuild(); };
+$('doodle').addEventListener('close', () => { if (sourceSel.value === 'doodle') rebuild(); });
+doodleInfo();
+
+// on phones, start with only the Design section expanded
+if (matchMedia('(max-width: 820px)').matches) {
+  document.querySelectorAll('aside > details:not(:first-child)').forEach((d) => d.removeAttribute('open'));
+}
 
 // ---------- start ----------
 syncVisibility();

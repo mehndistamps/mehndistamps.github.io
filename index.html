@@ -50,7 +50,7 @@
   .drop { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 10px; align-items: center; margin: 8px 0 10px;
     padding: 12px; border: 1.5px dashed var(--accent); border-radius: 10px; background: var(--drop); cursor: pointer; }
   .drop.dragging { border-style: solid; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
-  .drop img, .drop .ph { width: 56px; height: 56px; border-radius: 6px; object-fit: cover; background: var(--field); border: 1px solid var(--line); display: grid; place-items: center; color: var(--accent); font-size: 26px; }
+  .drop img, .ph { width: 56px; height: 56px; border-radius: 6px; object-fit: cover; background: var(--field); border: 1px solid var(--line); display: grid; place-items: center; color: var(--accent); font-size: 26px; }
   .drop strong { display: block; }
   .drop small { color: var(--muted); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .drop-actions { display: none; gap: 8px; margin-bottom: 6px; }
@@ -75,13 +75,65 @@
   button:disabled { opacity: .5; cursor: default; }
   .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
   #stats { color: var(--muted); font-size: 12px; margin-left: auto; }
+  .draw-tile { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 10px; align-items: center; width: 100%; height: auto;
+    margin: 0 0 10px; padding: 12px; text-align: left; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; font-weight: 400; white-space: normal; }
+  .draw-tile:hover, .drop:hover { border-color: var(--accent); }
+  .draw-tile strong { display: block; font-weight: 600; }
+  .draw-tile small { color: var(--muted); display: block; }
+  .mobile-bar { display: none; }
+
+  /* ---------- drawing dialog ---------- */
+  dialog#doodle { --paper: #fbf8f2; width: min(980px, 96vw); height: min(760px, 94dvh); max-width: none; max-height: none; padding: 0;
+    border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--ink); }
+  dialog#doodle[open] { display: flex; flex-direction: column; }
+  dialog#doodle::backdrop { background: rgb(20 12 8 / .55); }
+  .dd-top, .dd-tools { display: flex; align-items: center; gap: 8px; padding: 10px 12px; flex-wrap: wrap; }
+  .dd-top { border-bottom: 1px solid var(--line); }
+  .dd-top h2 { font: 600 17px Fraunces, Georgia, serif; margin: 0 auto 0 4px; }
+  .dd-tools { border-top: 1px solid var(--line); gap: 10px 14px; }
+  .pad { flex: 1; min-height: 0; display: grid; place-items: center; padding: 10px; background: color-mix(in srgb, var(--bg) 70%, #000 3%); }
+  .pad canvas { touch-action: none; cursor: crosshair; border-radius: 6px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; background: transparent; color: var(--ink); font-weight: 500; }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .dd-field { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+  .dd-field input[type=range] { width: 130px; }
+  .dd-field select { width: auto; }
+  #doodleSizeOut { min-width: 48px; font-variant-numeric: tabular-nums; color: var(--ink); }
+  .icon-btn { width: 38px; padding: 0; font-size: 17px; }
+
   @media (max-width: 820px) {
-    .app { grid-template-columns: minmax(0, 1fr); }
-    aside { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
-    main { padding: 16px; }
+    body { font-size: 15px; padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
+    header { padding: 12px 16px; }
+    header h1 { font-size: 20px; }
+    header span { font-size: 13px; }
+    /* one column: Design first, then the previews, then the rest of the settings */
+    .app { display: flex; flex-direction: column; align-items: stretch; }
+    aside { display: contents; }
+    aside > details { order: 3; background: var(--panel); padding: 8px 16px; }
+    aside > details:first-child { order: 1; }
+    main { order: 2; padding: 12px 12px 16px; border-bottom: 1px solid var(--line); }
+    .row { grid-template-columns: minmax(0, 1fr) 140px; min-height: 40px; }
+    input[type=number], select { height: 40px; font-size: 16px; } /* 16px stops iOS zooming in */
+    input[type=checkbox] { width: 22px; height: 22px; }
+    summary { padding: 8px 0; min-height: 40px; }
+    button { height: 44px; }
+    button.small { height: 40px; }
     .exports { display: grid; grid-template-columns: 1fr 1fr; }
     #stats { margin-left: 0; grid-column: 1 / -1; }
-    .stage { height: 340px; }
+    .stage { height: 300px; }
+    #impression { max-height: 180px; }
+    .mobile-bar { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+      padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: color-mix(in srgb, var(--panel) 92%, transparent);
+      backdrop-filter: blur(8px); border-top: 1px solid var(--line); }
+    dialog#doodle { width: 100vw; height: 100dvh; border-radius: 0; border: 0; }
+    .dd-top { padding: 8px 10px; flex-wrap: nowrap; }
+    .dd-top h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    #doodleDone { margin-left: auto; padding: 0 22px; }
+    .dd-tools { padding: 10px 10px calc(10px + env(safe-area-inset-bottom)); justify-content: space-between; }
+    .dd-field input[type=range] { width: 110px; }
+    .pad { padding: 6px; }
   }
 </style>
 <script type="importmap">
@@ -110,7 +162,14 @@
         <button type="button" class="small" id="dlBothSide">Download both STLs</button>
         <button type="button" class="small secondary" id="clearUpload">Remove</button>
       </div>
+      <button type="button" class="draw-tile" id="openDoodle">
+        <span class="ph" aria-hidden="true">✎</span>
+        <span><strong>Draw a design</strong><small id="doodleInfo">Doodle with mirror &amp; radial symmetry</small></span>
+      </button>
       <div class="row"><label for="source">Source</label><select id="source"></select></div>
+    </details>
+    <details open>
+      <summary>Design adjustments</summary>
       <div class="row" id="threshModeRow"><label for="threshMode">Threshold mode</label>
         <select id="threshMode"><option value="auto">Auto</option><option value="adaptive">Photo (adaptive)</option><option value="manual">Manual</option></select></div>
       <div class="row" id="thresholdRow"><label for="threshold">Threshold</label><input type="range" id="threshold" min="1" max="254" value="128"></div>
@@ -171,6 +230,7 @@
         <span class="legend"><span class="swatch" style="background:var(--tpu)"></span>Stamp pad (TPU)</span>
         <label><input type="checkbox" id="explode" checked> Exploded</label>
         <label><input type="checkbox" id="flipView"> Face up</label>
+        <span id="touchHint" hidden>Two fingers to rotate</span>
       </div>
       <div class="stage" id="stage"><div id="status">Loading geometry engine…</div></div>
     </section>
@@ -186,6 +246,29 @@
     </section>
   </main>
 </div>
+<dialog id="doodle" aria-labelledby="doodleTitle">
+  <div class="dd-top">
+    <h2 id="doodleTitle">Draw your design</h2>
+    <button type="button" class="secondary icon-btn" id="doodleUndo" aria-label="Undo" title="Undo (⌘Z)">↶</button>
+    <button type="button" class="secondary icon-btn" id="doodleRedo" aria-label="Redo" title="Redo (⇧⌘Z)">↷</button>
+    <button type="button" class="secondary" id="doodleClear">Clear</button>
+    <button type="button" id="doodleDone">Done</button>
+  </div>
+  <div class="pad"><canvas id="doodleCanvas" aria-label="Drawing area"></canvas></div>
+  <div class="dd-tools">
+    <div class="seg" role="group" aria-label="Tool">
+      <button type="button" data-tool="pen" aria-pressed="true">Pen</button>
+      <button type="button" data-tool="dots" aria-pressed="false">Dots</button>
+      <button type="button" data-tool="eraser" aria-pressed="false">Eraser</button>
+    </div>
+    <label class="dd-field">Size <input type="range" id="doodleSize" min="0.6" max="4" step="0.1" value="1"><output id="doodleSizeOut"></output></label>
+    <label class="dd-field">Symmetry <select id="doodleSym"></select></label>
+  </div>
+</dialog>
+<nav class="mobile-bar" aria-label="Quick actions">
+  <button type="button" class="secondary" id="mbDraw">✎ Draw</button>
+  <button type="button" id="mbDownload" disabled>Download STLs</button>
+</nav>
 <script type="module" src="src/app.js"></script>
 <script>
   // if a script fails to download the module never runs: say so instead of spinning forever

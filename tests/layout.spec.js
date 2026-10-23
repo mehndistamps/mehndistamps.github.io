@@ -16,7 +16,7 @@ test.describe('layout & alignment', () => {
 
   test('every sidebar label is vertically centred on its control', async ({ page }) => {
     await openApp(page);
-    const off = await page.$$eval('aside .row', (rows) => rows.filter((r) => r.offsetParent).map((row) => {
+    const off = await page.$$eval('aside .row', (rows) => rows.filter((r) => r.checkVisibility()).map((row) => {
       const l = row.querySelector('label'), c = row.querySelector('input, select');
       const a = l.getBoundingClientRect(), b = c.getBoundingClientRect();
       return { id: c.id, dy: Math.abs((a.top + a.height / 2) - (b.top + b.height / 2)) };
@@ -26,7 +26,7 @@ test.describe('layout & alignment', () => {
 
   test('all sidebar controls start on the same column', async ({ page }) => {
     await openApp(page);
-    const lefts = await page.$$eval('aside .row', (rows) => rows.filter((r) => r.offsetParent)
+    const lefts = await page.$$eval('aside .row', (rows) => rows.filter((r) => r.checkVisibility())
       .map((r) => Math.round(r.querySelector('input, select').getBoundingClientRect().left)));
     expect(Math.max(...lefts) - Math.min(...lefts)).toBeLessThanOrEqual(1);
   });
@@ -34,13 +34,13 @@ test.describe('layout & alignment', () => {
   test('text fields and selects share one width and height', async ({ page }) => {
     await openApp(page);
     const sizes = await page.$$eval('aside .row input[type=number], aside .row select',
-      (els) => els.filter((e) => e.offsetParent).map((e) => `${Math.round(e.getBoundingClientRect().width)}x${Math.round(e.getBoundingClientRect().height)}`));
+      (els) => els.filter((e) => e.checkVisibility()).map((e) => `${Math.round(e.getBoundingClientRect().width)}x${Math.round(e.getBoundingClientRect().height)}`));
     expect(new Set(sizes).size).toBe(1);
   });
 
   test('labels are not clipped or overlapping their controls', async ({ page }) => {
     await openApp(page);
-    const bad = await page.$$eval('aside .row', (rows) => rows.filter((r) => r.offsetParent).filter((row) => {
+    const bad = await page.$$eval('aside .row', (rows) => rows.filter((r) => r.checkVisibility()).filter((row) => {
       const l = row.querySelector('label'), c = row.querySelector('input, select');
       return l.scrollWidth > l.clientWidth + 1 || l.getBoundingClientRect().right > c.getBoundingClientRect().left + 0.5;
     }).map((r) => r.querySelector('label').textContent));
@@ -49,9 +49,8 @@ test.describe('layout & alignment', () => {
 
   test('section arrows stay inside the sidebar', async ({ page }) => {
     await openApp(page);
-    const aside = await rect(page, 'aside');
     const lefts = await page.$$eval('aside summary', (s) => s.map((e) => e.getBoundingClientRect().left));
-    for (const l of lefts) expect(l).toBeGreaterThanOrEqual(aside.left + 8);
+    for (const l of lefts) expect(l).toBeGreaterThanOrEqual(8);
   });
 
   test('export buttons have equal height; same-row buttons share a top edge', async ({ page }) => {
@@ -110,8 +109,11 @@ test.describe('layout & alignment', () => {
     await openApp(page);
     const box = await rect(page, '#drop');
     expect(box.height).toBeGreaterThanOrEqual(44);
-    const aside = await rect(page, 'aside');
-    expect(box.width).toBeGreaterThan(aside.width * 0.8);
+    const section = await rect(page, 'aside > details');
+    expect(box.width).toBeGreaterThan(section.width * 0.8);
+    const draw = await rect(page, '#openDoodle');
+    expect(draw.height).toBeGreaterThanOrEqual(44);
+    expect(Math.abs(draw.width - box.width)).toBeLessThanOrEqual(1);
   });
 
   test('dark mode uses a dark background with readable text', async ({ page }) => {
@@ -145,5 +147,78 @@ test.describe('layout & alignment', () => {
     await openApp(page);
     await page.waitForTimeout(300);
     await page.screenshot({ path: info.outputPath('full.png'), fullPage: true });
+  });
+});
+
+test.describe('phone layout', () => {
+  test.beforeEach(({ page }) => {
+    test.skip(page.viewportSize().width > 820, 'phone-only checks');
+  });
+
+  test('order is Design, then previews, then the other settings', async ({ page }) => {
+    await openApp(page, { expand: false });
+    const design = await rect(page, 'aside > details:first-child');
+    const main = await rect(page, 'main');
+    const block = await page.locator('summary', { hasText: 'Block' }).boundingBox();
+    expect(design.bottom).toBeLessThanOrEqual(main.top + 1);
+    expect(main.bottom).toBeLessThanOrEqual(block.y + 1);
+  });
+
+  test('preview is reachable without scrolling far', async ({ page }) => {
+    await openApp(page, { expand: false });
+    const main = await rect(page, 'main');
+    expect(main.top).toBeLessThan(page.viewportSize().height * 0.9);
+  });
+
+  test('only the Design section starts expanded', async ({ page }) => {
+    await openApp(page, { expand: false });
+    const open = await page.$$eval('aside > details', (d) => d.map((x) => x.open));
+    expect(open[0]).toBe(true);
+    expect(open.slice(1).every((o) => !o)).toBe(true);
+  });
+
+  test('bottom bar is pinned and never hides the last content', async ({ page }) => {
+    await openApp(page);
+    const bar = await rect(page, '.mobile-bar');
+    const vp = page.viewportSize();
+    expect(Math.round(bar.bottom)).toBe(vp.height);
+    await expect(page.locator('#mbDownload')).toBeEnabled();
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    const lastSummary = await page.locator('aside > details').last().boundingBox();
+    expect(lastSummary.y + lastSummary.height).toBeLessThanOrEqual(bar.top + 1);
+  });
+
+  test('bottom bar opens the drawing pad and downloads', async ({ page }) => {
+    await openApp(page);
+    await page.click('#mbDraw');
+    await expect(page.locator('#doodle')).toBeVisible();
+    await page.click('#doodleDone');
+    const names = [];
+    page.on('download', (d) => names.push(d.suggestedFilename()));
+    await page.click('#mbDownload');
+    await expect.poll(() => names.length).toBe(2);
+  });
+
+  test('form fields use 16px text so iOS does not zoom', async ({ page }) => {
+    await openApp(page);
+    for (const d of await page.$$('aside > details')) await d.evaluate((x) => { x.open = true; });
+    const small = await page.$$eval('input[type=number], select', (els) => els.filter((e) => e.checkVisibility())
+      .filter((e) => parseFloat(getComputedStyle(e).fontSize) < 16).map((e) => e.id));
+    expect(small).toEqual([]);
+  });
+
+  test('touch targets are at least 40px tall', async ({ page }) => {
+    await openApp(page);
+    for (const d of await page.$$('aside > details')) await d.evaluate((x) => { x.open = true; });
+    const small = await page.$$eval('button, input[type=number], select, summary', (els) => els.filter((e) => e.checkVisibility())
+      .map((e) => ({ id: e.id || e.textContent.trim().slice(0, 20), h: e.getBoundingClientRect().height })).filter((x) => x.h < 40));
+    expect(small).toEqual([]);
+  });
+
+  test('page scrolls with one finger over the 3D view', async ({ page }) => {
+    await openApp(page);
+    const ta = await page.$eval('#stage canvas', (c) => getComputedStyle(c).touchAction);
+    expect(ta).toBe('pan-y');
+    await expect(page.locator('#touchHint')).toBeVisible();
   });
 });
